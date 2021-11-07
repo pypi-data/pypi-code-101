@@ -1,0 +1,2 @@
+class DriftAnalyzer:
+    pass
