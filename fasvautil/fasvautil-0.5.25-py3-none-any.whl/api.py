@@ -1,0 +1,215 @@
+# -*- coding: utf-8 -*-
+# Copyright (c) 2019 by Lars Klitzke, Lars.Klitzke@gmail.com
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+
+import pandas as pd
+import requests
+from requests.auth import HTTPBasicAuth
+
+import fasvautil as fu
+
+
+def get_drive(name, api, user, password):
+    """
+    Get the entry of the drive with the given name
+    Args:
+        name (str):         The name of the drive
+        api (str):          The URL to the API to query
+        user (str):         Name of the API user
+        password (str):     Password of the API user
+
+    Returns:
+        pd.Series:   The entry as a pandas Series
+
+    """
+    drive = fu.api.query_api(entry='drive/{}'.format(name), api=api, user=user, password=password)  # type: pd.Series
+
+    for attr in ['start', 'end']:
+        drive[attr] = pd.to_datetime(drive[attr]).tz_localize(None)
+
+    return drive
+
+
+def query_api(api, entry, user, password):
+    """
+    Query the FASva RESTful-API
+
+    Args:
+        api (str):                  The URL of the API.
+        entry (str):                The query statement
+        user (str):                 The name of the user
+        password (str):             The password
+
+    Returns:
+        pd.Series|pd.DataFrame|None:     The result either as a pandas Series or DataFrame
+    """
+    result = requests.get('{api}/{entry}'.format(
+        api=api,
+        entry=entry),
+        auth=HTTPBasicAuth(user, password))
+
+    if 200 <= result.status_code < 300:
+        try:
+            return pd.read_json(result.text, convert_dates=False)
+        except ValueError:
+            return pd.read_json(result.text, convert_dates=False, typ='series')
+
+
+def query_scene(api, scene_identifier, idsignals, user, password):
+    """
+    Get the signals of the scene with the specified id.
+
+    Args:
+        api (str):                                  The URL of the API
+        scene_identifier (int|(datetime, int)):     The id or timestamp of the scene and id of the the drive
+        idsignals (list[int]|int):                  The id's of the signals
+        user (str):                                 The name of the user
+        password (str):                             The password
+
+    Returns:
+        pd.Series|None:  The scene with the signals
+    """
+    if not isinstance(idsignals, (tuple, list)):
+        idsignals = str(idsignals)
+    else:
+        idsignals = ",".join([str(v) for v in idsignals])
+
+    if isinstance(scene_identifier, int):
+        query = 'scene/{idscene}/{signals}'.format(idscene=scene_identifier,
+                                                   signals="?idsignal={}".format(idsignals) if idsignals else "")
+
+    else:
+        timestamp, iddrive = scene_identifier
+
+        query = 'scene/time/{timestamp}/drive/{iddrive}{signals}'.format(timestamp=fu.io.to_epoch(timestamp),
+                                                                         iddrive=iddrive,
+                                                                         signals="?idsignal={}".format(
+                                                                             idsignals) if idsignals else "")
+
+    drive_scenes = query_api(api, query, user, password)
+
+    if drive_scenes is not None:
+        drive_scenes.timestamp = pd.to_datetime(drive_scenes.timestamp).dt.tz_localize(None)
+
+    return drive_scenes
+
+
+def query_scenes(api, drive, idsignals, user, password, start=None, end=None):
+    """
+    Get scenes from the FASva RESTFul-API.
+
+    Args:
+        api (str):                  The URL of the API.
+        drive (Drive):              The drive to get the scenes from.
+        idsignals (list[int]|int):  The id's of the signals
+        user (str):                 The name of the user
+        password (str):             The password
+        start (datetime.datetime):  The start of the interval
+        end (datetime.datetime):    The end of the interval
+
+    Returns:
+        pd.DataFrame: The result of the request as `DataFrame`
+    """
+
+    if not isinstance(idsignals, (tuple, list)):
+        idsignals = str(idsignals)
+    else:
+        idsignals = ",".join([str(v) for v in idsignals])
+
+    if start is None and end is None:
+        start = drive.start
+        end = drive.end
+
+    drive_scenes = query_api(api,
+                             'scene/start/{start_time}/end/{end_time}/drive/{iddrive}{signals}'.format(
+                                 start_time=fu.io.to_epoch(start),
+                                 end_time=fu.io.to_epoch(end),
+                                 iddrive=drive.iddrive,
+                                 signals="?idsignal={}".format(idsignals) if idsignals else ""),
+                             user, password)
+    if drive_scenes is not None:
+        drive_scenes.timestamp = pd.to_datetime(drive_scenes.timestamp).dt.tz_localize(None)
+
+    return drive_scenes
+
+
+def query_signals(api, signals, user, password):
+    """
+    Get the signals with the given names.
+
+    Args:
+        api (str):                  The URL of the API.
+        signals (list[str]|str):    The name(s) of the signal(s) to query
+        user (str):                 The name of the user
+        password (str):             The password
+
+    Returns:
+        pd.Series|pd.DataFrame:     The signal entries as a pandas Series or as rows in a pandas DataFrame
+    """
+
+    if not isinstance(signals, (list, tuple)):
+        return query_api(api, 'signal/{name}'.format(name=signals), user, password)
+
+    with ThreadPoolExecutor() as pool:
+        futures = [pool.submit(query_api, api, 'signal/{name}'.format(name=name), user, password) for name in signals]
+
+    r = [f.result() for f in futures]
+
+    return pd.DataFrame(r)
+
+
+def retrieve_drive_sequence(drive, api, user, password, signals, start_time=None, end_time=None):
+    """
+    Retrieve the sequence from the API
+
+    Args:
+        drive (str):            The name of the drive
+        api  (str):             The URL of the API
+        user (str):             The name of the user
+        password (str):         The user's password
+        start_time (datetime):  The start of the sequence (optional)
+        end_time (datetime):    The end of the sequence (optional)
+        signals (list[str]):    A list of signal names
+
+    Returns:
+        pd.DataFrame:   The sequences as pandas DataFrame
+    """
+    trajectory_signals = []
+
+    for s in signals:
+        signal = fu.api.query_api(api, 'signal/{name}'.format(name=s), user, password)
+
+        trajectory_signals.append(signal.idsignal)
+
+    # get the drive entry
+    drive_entry = fu.api.get_drive(name=drive, api=api, user=user, password=password)
+
+    if drive_entry is None:
+        raise NameError('The drive %s does not exist'.format(drive))
+
+    # set start and end time of sequence to the drive time if not specified by the user
+    if not start_time:
+        start_time = drive_entry.start
+
+    if not end_time:
+        end_time = drive_entry.end
+
+    # get the sequence
+    scenes = fu.api.query_scenes(api=api, drive=drive_entry, user=user, idsignals=trajectory_signals, password=password,
+                                 start=start_time, end=end_time)
+
+    return scenes
