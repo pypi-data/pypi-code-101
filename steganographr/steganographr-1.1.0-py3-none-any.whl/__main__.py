@@ -1,0 +1,2 @@
+import steganographr
+steganographr.main()
