@@ -1,0 +1,257 @@
+import argparse
+import functools
+
+from voussoirkit import pipeable
+from voussoirkit import vlogging
+
+log = vlogging.get_logger(__name__)
+
+# When using a single parser or a command of a subparser, the presence of any
+# of these strings in argv will trigger the helptext.
+# > application.py --help
+# > application.py command --help
+HELP_ARGS = {'-h', '--help'}
+
+# When using a subparser, the command name can be any of these to trigger
+# the helptext.
+# > application.py help
+# > application.py --help
+# This does not apply to single-parser applications because the user might try
+# to pass the word "help" as the actual argument to the program, but in a
+# subparser application it's very unlikely that there is an actual command
+# called help.
+HELP_COMMANDS = {'help', '-h', '--help'}
+
+# Modules can add additional helptexts to this set, and they will appear
+# after the program's main docstring is shown. This is used when the module
+# intercepts sys.argv to change program behavior beyond the options provided
+# by the program's argparse. For example, voussoirkit.vlogging.main_decorator
+# adds command-line arguments like --debug which the application's argparse
+# is not aware of. vlogging registers an epilogue here so that all vlogging-
+# enabled applications gain the relevant helptext for free.
+HELPTEXT_EPILOGUES = set()
+
+# INTERNALS
+################################################################################
+def add_previews(docstring, sub_docstrings) -> str:
+    '''
+    Given a primary docstring which contains {command_name} formatting elements,
+    and a dict of sub_docstrings of {command_name: docstring}, insert previews
+    of each command into the primary docstring.
+    '''
+    previews = {
+        sub_name: docstring_preview(sub_text)
+        for (sub_name, sub_text) in sub_docstrings.items()
+    }
+    docstring = docstring.format(**previews)
+    return docstring
+
+def can_use_bare(parser) -> bool:
+    '''
+    Return true if the given parser has no required arguments, ie can run bare.
+    This is used to decide whether running `> myprogram.py` should show the
+    helptext or just run normally.
+    '''
+    def is_required(action):
+        # I found that positional arguments marked with nargs=* were still being
+        # considered 'required', which is not what I want as far as can_use_bare
+        # goes. I believe option_strings==[] is what indicates this action is
+        # positional. If I'm wrong let's fix it.
+        if action.option_strings == [] and action.nargs == '*':
+            return False
+        return action.required
+
+    has_func = bool(parser.get_default('func'))
+    has_required_args = any(is_required(action) for action in parser._actions)
+    return has_func and not has_required_args
+
+def can_use_bare_subparsers(subparser_action) -> set:
+    '''
+    Return a set of subparser names which can be used bare.
+    '''
+    can_bares = set(
+        sp_name for (sp_name, sp) in subparser_action.choices.items()
+        if can_use_bare(sp)
+    )
+    return can_bares
+
+def docstring_preview(text) -> str:
+    '''
+    This function assumes that your docstring is formatted with a single blank
+    line separating the command's primary summary and the rest of the text,
+    and will return the summary above the blank.
+
+    >>> cookbacon = """
+    ... cookbacon: Cooks all nearby bacon to a specified temperature.
+    ...
+    ... Usage:
+    ...     > cookbacon 350F
+    ...     > cookbacon 175C
+    ... """
+    >>>
+    >>>
+    >>> docstring_preview(cookbacon)
+    'cookbacon: Cooks all nearby bacon to a specified temperature.'
+    '''
+    text = text.split('\n\n')[0].strip()
+    return text
+
+def get_subparser_action(parser):
+    for action in parser._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            return action
+    raise TypeError('Couldn\'t locate the SubParsersAction.')
+
+def listget(li, index, fallback=None):
+    try:
+        return li[index]
+    except IndexError:
+        return fallback
+
+def print_helptext(text) -> None:
+    '''
+    Print the given text to stderr, along with any epilogues added by
+    other modules.
+    '''
+    fulltext = [text.strip()] + sorted(epi.strip() for epi in HELPTEXT_EPILOGUES)
+    fulltext = '\n\n'.join(fulltext)
+    pipeable.stderr()
+    pipeable.stderr(fulltext)
+
+def set_alias_docstrings(sub_docstrings, subparser_action) -> dict:
+    '''
+    When using subparser aliases like the following:
+
+        subp = parser.add_subparser('do_this', aliases=['do-this'])
+
+    The _SubParsersAction will contain a dictionary `choices` of
+    {'do_this': ArgumentParser, 'do-this': ArgumentParser}.
+    This choices dict does not indicate which one was the original name;
+    all aliases are equal. So, we'll identify which names are aliases because
+    their ArgumentParsers will have the same ID in memory. And, as long as one
+    of those aliases is in the provided docstrings, all the other aliases will
+    get that docstring too.
+
+    This function modifies the given sub_docstrings so that all aliases are
+    present as keys.
+    '''
+    sub_docstrings = {name.lower(): docstring for (name, docstring) in sub_docstrings.items()}
+    # aliases is a map of {action object's id(): [list of alias name strings]}.
+    aliases = {}
+    # primary_aliases is {action object's id(): 'name string'}
+    primary_aliases = {}
+
+    for (sp_name, sp) in subparser_action.choices.items():
+        sp_id = id(sp)
+        sp_name = sp_name.lower()
+        aliases.setdefault(sp_id, []).append(sp_name)
+        if sp_name in sub_docstrings:
+            primary_aliases[sp_id] = sp_name
+
+    for (sp_id, sp_aliases) in aliases.items():
+        try:
+            primary_alias = primary_aliases[sp_id]
+        except KeyError:
+            log.warning('There is no docstring for any of %s.', sp_aliases)
+            docstring = ''
+        else:
+            docstring = sub_docstrings[primary_alias]
+
+        for sp_alias in sp_aliases:
+            sub_docstrings[sp_alias] = docstring
+
+    return sub_docstrings
+
+# DECORATORS
+################################################################################
+def single_betterhelp(parser, docstring):
+    '''
+    This decorator actually doesn't need the `parser`, but the
+    subparser_betterhelp decorator does, so in the interest of having similar
+    function signatures I'm making it required here too. I figure it's the
+    lesser of two evils. Plus, maybe someday I'll find a need for it and won't
+    have to make any changes to do it.
+    '''
+    can_bare = can_use_bare(parser)
+    def wrapper(main):
+        @functools.wraps(main)
+        def wrapped(argv):
+            if len(argv) == 0 and can_bare:
+                return main(argv)
+
+            if len(argv) == 0:
+                print_helptext(docstring)
+                return 1
+
+            if any(arg.lower() in HELP_ARGS for arg in argv):
+                print_helptext(docstring)
+                return 1
+
+            return main(argv)
+        return wrapped
+    return wrapper
+
+def subparser_betterhelp(parser, main_docstring, sub_docstrings):
+    subparser_action = get_subparser_action(parser)
+    sub_docstrings = set_alias_docstrings(sub_docstrings, subparser_action)
+    can_bare = can_use_bare(parser)
+    can_bares = can_use_bare_subparsers(subparser_action)
+
+    def wrapper(main):
+        @functools.wraps(main)
+        def wrapped(argv):
+            command = listget(argv, 0, '').lower()
+
+            if command == '' and can_bare:
+                return main(argv)
+
+            if command == '':
+                print_helptext(main_docstring)
+                because = 'you did not choose a command'
+                pipeable.stderr(f'\nYou are seeing the default help text because {because}.')
+                return 1
+
+            if command in HELP_COMMANDS:
+                print_helptext(main_docstring)
+                return 1
+
+            if command not in sub_docstrings:
+                print_helptext(main_docstring)
+                because = f'"{command}" was not recognized'
+                pipeable.stderr(f'\nYou are seeing the default help text because {because}.')
+                return 1
+
+            arguments = argv[1:]
+
+            if len(arguments) == 0 and command in can_bares:
+                return main(argv)
+
+            if len(arguments) == 0:
+                print_helptext(sub_docstrings[command])
+                return 1
+
+            if any(arg.lower() in HELP_ARGS for arg in arguments):
+                print_helptext(sub_docstrings[command])
+                return 1
+
+            return main(argv)
+        return wrapped
+    return wrapper
+
+# EASY MAINS
+################################################################################
+def single_main(argv, parser, docstring, args_postprocessor=None):
+    def main(argv):
+        args = parser.parse_args(argv)
+        if args_postprocessor is not None:
+            args = args_postprocessor(args)
+        return args.func(args)
+    return single_betterhelp(parser, docstring)(main)(argv)
+
+def subparser_main(argv, parser, main_docstring, sub_docstrings, args_postprocessor=None):
+    def main(argv):
+        args = parser.parse_args(argv)
+        if args_postprocessor is not None:
+            args = args_postprocessor(args)
+        return args.func(args)
+    return subparser_betterhelp(parser, main_docstring, sub_docstrings)(main)(argv)
