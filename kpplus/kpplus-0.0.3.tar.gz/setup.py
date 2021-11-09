@@ -1,0 +1,24 @@
+import setuptools
+
+with open('README.md', 'r') as fh:
+    long_description = fh.read()
+
+setuptools.setup(
+  name="kpplus",
+  version="0.0.3",
+  author="Minhao Zhou",
+  author_email="youbao2@hotmail.com",
+  description="A JIT optimized K-Prototype algorithm",
+  long_description=long_description,
+  long_description_content_type="text/markdown",
+  url="https://github.com/youbao88/KPrototypes_plus",
+  packages=setuptools.find_packages(),
+  classifiers=[
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  ],
+  install_requires = [
+      'pandas','numpy', 'numba', 'joblib'
+  ]
+)
