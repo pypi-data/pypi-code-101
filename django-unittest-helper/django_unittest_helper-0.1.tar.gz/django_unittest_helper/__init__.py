@@ -1,0 +1,1 @@
+from django_unittest_helper.image import form_image_helper
