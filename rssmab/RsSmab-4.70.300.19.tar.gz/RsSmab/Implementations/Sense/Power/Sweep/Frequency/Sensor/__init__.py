@@ -1,0 +1,35 @@
+from .......Internal.Core import Core
+from .......Internal.CommandsGroup import CommandsGroup
+
+
+# noinspection PyPep8Naming,PyAttributeOutsideInit,SpellCheckingInspection
+class Sensor:
+	"""Sensor commands group definition. 5 total commands, 2 Sub-groups, 0 group commands"""
+
+	def __init__(self, core: Core, parent):
+		self._core = core
+		self._cmd_group = CommandsGroup("sensor", core, parent)
+
+	@property
+	def offset(self):
+		"""offset commands group. 1 Sub-classes, 1 commands."""
+		if not hasattr(self, '_offset'):
+			from .Offset import Offset
+			self._offset = Offset(self._core, self._cmd_group)
+		return self._offset
+
+	@property
+	def srange(self):
+		"""srange commands group. 3 Sub-classes, 0 commands."""
+		if not hasattr(self, '_srange'):
+			from .Srange import Srange
+			self._srange = Srange(self._core, self._cmd_group)
+		return self._srange
+
+	def clone(self) -> 'Sensor':
+		"""Clones the group by creating new object from it and its whole existing sub-groups
+		Also copies all the existing default Repeated Capabilities setting,
+		which you can change independently without affecting the original group"""
+		new_group = Sensor(self._core, self._cmd_group.parent)
+		self._cmd_group.synchronize_repcaps(new_group)
+		return new_group
