@@ -1,0 +1,1 @@
+from wannabecryptolib.encryptlikeapro import UltraSafeCipher
