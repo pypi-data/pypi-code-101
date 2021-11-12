@@ -1,0 +1,17 @@
+import logging
+
+from . import databases, topological
+from .core.compound import Compound
+from .core.model import Model
+from .core.reaction import Reaction
+
+logger = logging.getLogger("moped")
+logger.setLevel(logging.WARNING)
+formatter = logging.Formatter(
+    fmt="{asctime} - {levelname} - {message}",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    style="{",
+)
+handler = logging.StreamHandler()
+handler.setFormatter(formatter)
+logger.addHandler(handler)
