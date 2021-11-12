@@ -1,0 +1,91 @@
+from sklearn.metrics import f1_score
+from kortical import api
+from module_placeholder.config import read_config
+from module_placeholder.workflows import common, business_case
+
+config = read_config("config.yml")
+target = config['target']
+target_accuracy = config['target_accuracy']
+instance_name = config['instance_name']
+
+
+def train(df_train, df_calibrate, df_test):
+    api.init(config['system_url'])
+
+    # Do custom processing
+    datasets = [df_train, df_calibrate, df_test]
+    for df in datasets:
+        common.preprocessing(df)
+
+    # Create model
+    instance = api.instance.Instance.create_or_select(instance_name, delete_unpublished_models=True, stop_train=True)
+    data = api.data.Data.upload_df(df_train, name=instance_name)
+    data.set_targets(target)
+
+    model = instance.train_model(
+        data,
+        model_code=common.model_code,
+        number_of_train_workers=6,
+        # Remove this minutes limitation to run in production and produce better models
+        max_minutes_to_train=2,
+        max_models_with_no_score_change=50
+    )
+
+    # Should we include explain info in our new candidate model report?
+    df_test_raw = df_test.copy()
+    deployment = model.publish('Integration')
+    df_calibrate = deployment.predict(df_calibrate)
+    df_test = deployment.predict(df_test)
+
+    # score test set
+    test_f1 = f1_score(df_test[target], df_test[f'predicted_{target}'], average='weighted')
+    print(f"Raw Model F1 Score: {test_f1:.3f}")
+
+    # do Superhuman Calibration
+    calibration_data = api.superhuman_calibration.calibrate(
+        df_calibrate,
+        target, target_accuracy,
+        non_automated_class=common.not_automated_class,
+        # proportionally return classes so make them all important
+        important_classes=['Transfer', 'Return_to_owner', common.not_automated_class],
+    )
+
+    df_test = api.superhuman_calibration.apply(
+        df_test,
+        calibration_data
+    )
+
+    # call Superhuman Calibration score
+    calibration_results = api.superhuman_calibration.score(df_test, calibration_data)
+
+    uat_deployment = instance.get_deployment('UAT')
+
+    uat_model = uat_deployment.get_live_model()
+
+    if uat_model is not None:
+        uat_calibration_data = common.storage.get(common.get_calibration_data_storage_name(uat_model.id))
+        if uat_calibration_data is None:
+            raise Exception("No matching calibration data for UAT model.")
+
+        df_test_uat = deployment.predict(df_test_raw)
+        df_test_uat = api.superhuman_calibration.apply(
+            df_test_uat,
+            uat_calibration_data
+        )
+
+        uat_calibration_results = api.superhuman_calibration.score(df_test_uat, uat_calibration_data)
+    else:
+        uat_calibration_results = None
+
+    should_publish, reason = business_case.should_publish(calibration_results, uat_calibration_results)
+
+    # send report for new model
+    print(f"Business Case:\n\nShould Publish: {should_publish},\nReason: {reason}")
+
+    # Optional
+    if should_publish:
+        common.storage.store(common.get_calibration_data_storage_name(model.id), calibration_data)
+
+        # Optional could just be a report
+        uat_deployment.publish_model(model)
+
