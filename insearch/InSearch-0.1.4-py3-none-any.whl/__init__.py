@@ -1,0 +1,1 @@
+from InSearch.InSearch import *
