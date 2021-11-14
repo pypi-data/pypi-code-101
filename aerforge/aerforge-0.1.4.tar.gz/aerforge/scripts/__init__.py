@@ -1,0 +1,1 @@
+from aerforge.scripts.follow_camera import FollowCamera
