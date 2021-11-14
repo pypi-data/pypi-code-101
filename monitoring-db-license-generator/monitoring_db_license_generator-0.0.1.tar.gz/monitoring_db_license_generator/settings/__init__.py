@@ -1,0 +1,1 @@
+from monitoring_db_license_generator.settings.service_settings import *
