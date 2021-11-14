@@ -1,0 +1,2 @@
+def dulli():
+    print("Dulli")
