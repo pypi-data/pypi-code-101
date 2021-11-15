@@ -1,0 +1,73 @@
+from ........Internal.Core import Core
+from ........Internal.CommandsGroup import CommandsGroup
+from ........Internal import Conversions
+from ........Internal.Utilities import trim_str_response
+
+
+# noinspection PyPep8Naming,PyAttributeOutsideInit,SpellCheckingInspection
+class File:
+	"""File commands group definition. 2 total commands, 0 Sub-groups, 2 group commands"""
+
+	def __init__(self, core: Core, parent):
+		self._core = core
+		self._cmd_group = CommandsGroup("file", core, parent)
+
+	def get_constellation(self) -> str:
+		"""SCPI: [SOURce<HW>]:BB:GNSS:SV:IMPort:GPS:FILE:CONStellation \n
+		Snippet: value: str = driver.source.bb.gnss.sv.importPy.gps.file.get_constellation() \n
+		Selects the file from that the satellites constellation and navigation data are extracted. Supported file types per GNSS
+		system
+			Table Header: GNSS system / *.txt / *.alm / *.al3 / *.xml / *.alg / *.rnx / *.<xx>n \n
+			- GPS / x / x / x / x / x
+			- Galileo / x / x / x / x / x / x
+			- GLONASS / x / x / x
+			- BeiDou / x / x / x
+			- QZSS / x / x / x / x
+			- NavIC / x
+		Refer to 'Accessing Files in the Default or Specified Directory' for general information on file handling in the default
+		and in a specific directory. \n
+			:return: filename: string Filename, including file path and file extension.
+		"""
+		response = self._core.io.query_str('SOURce<HwInstance>:BB:GNSS:SV:IMPort:GPS:FILE:CONStellation?')
+		return trim_str_response(response)
+
+	def set_constellation(self, filename: str) -> None:
+		"""SCPI: [SOURce<HW>]:BB:GNSS:SV:IMPort:GPS:FILE:CONStellation \n
+		Snippet: driver.source.bb.gnss.sv.importPy.gps.file.set_constellation(filename = '1') \n
+		Selects the file from that the satellites constellation and navigation data are extracted. Supported file types per GNSS
+		system
+			Table Header: GNSS system / *.txt / *.alm / *.al3 / *.xml / *.alg / *.rnx / *.<xx>n \n
+			- GPS / x / x / x / x / x
+			- Galileo / x / x / x / x / x / x
+			- GLONASS / x / x / x
+			- BeiDou / x / x / x
+			- QZSS / x / x / x / x
+			- NavIC / x
+		Refer to 'Accessing Files in the Default or Specified Directory' for general information on file handling in the default
+		and in a specific directory. \n
+			:param filename: string Filename, including file path and file extension.
+		"""
+		param = Conversions.value_to_quoted_str(filename)
+		self._core.io.write(f'SOURce<HwInstance>:BB:GNSS:SV:IMPort:GPS:FILE:CONStellation {param}')
+
+	def get_nmessage(self) -> str:
+		"""SCPI: [SOURce<HW>]:BB:GNSS:SV:IMPort:GPS:FILE:NMESsage \n
+		Snippet: value: str = driver.source.bb.gnss.sv.importPy.gps.file.get_nmessage() \n
+		Selects the file from that the navigation data is extracted. For overview of the supported file types, see Table
+		'Supported file types per GNSS system'. Refer to 'Accessing Files in the Default or Specified Directory' for general
+		information on file handling in the default and in a specific directory. \n
+			:return: filename: string Filename, incl. file path and file extension.
+		"""
+		response = self._core.io.query_str('SOURce<HwInstance>:BB:GNSS:SV:IMPort:GPS:FILE:NMESsage?')
+		return trim_str_response(response)
+
+	def set_nmessage(self, filename: str) -> None:
+		"""SCPI: [SOURce<HW>]:BB:GNSS:SV:IMPort:GPS:FILE:NMESsage \n
+		Snippet: driver.source.bb.gnss.sv.importPy.gps.file.set_nmessage(filename = '1') \n
+		Selects the file from that the navigation data is extracted. For overview of the supported file types, see Table
+		'Supported file types per GNSS system'. Refer to 'Accessing Files in the Default or Specified Directory' for general
+		information on file handling in the default and in a specific directory. \n
+			:param filename: string Filename, incl. file path and file extension.
+		"""
+		param = Conversions.value_to_quoted_str(filename)
+		self._core.io.write(f'SOURce<HwInstance>:BB:GNSS:SV:IMPort:GPS:FILE:NMESsage {param}')
