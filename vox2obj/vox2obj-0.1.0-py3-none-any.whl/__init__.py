@@ -1,0 +1,1 @@
+from .vox2obj import convert_to_obj
