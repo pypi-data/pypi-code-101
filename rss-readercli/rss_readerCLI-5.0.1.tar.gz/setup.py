@@ -1,0 +1,36 @@
+from setuptools import setup, find_packages
+
+PROGRAM_VERSION = "5.0.1"
+
+with open("README.md", "r", encoding="utf-8") as fh:
+    long_description = fh.read()
+
+
+setup(
+    name='rss_readerCLI',
+    version=PROGRAM_VERSION,
+    author='Aleksey Mikhalkevich',
+    author_email='lehado67@gmail.com',
+    description="Python reader for RSS feed",
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+    url="https://github.com/Aleksey-Mikh/CLI_util_RSS_reader",
+    packages=find_packages(),
+    py_modules=['rss_reader'],
+    python_requires=">=3.9",
+    install_requires=[
+        'requests',
+        'beautifulsoup4',
+        'lxml',
+        'Jinja2',
+        'fpdf',
+        'pytest',
+        'pytest-cov',
+        'colorama',
+    ],
+    entry_points={
+        "console_scripts": [
+            "rss_reader = rss_reader:main",
+        ],
+    }
+)
