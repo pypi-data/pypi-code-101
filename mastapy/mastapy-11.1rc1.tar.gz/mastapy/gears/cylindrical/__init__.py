@@ -1,0 +1,11 @@
+﻿'''__init__.py'''
+
+
+from mastapy._internal.dummy_base_class_importer import _DummyBaseClassImport
+
+
+with _DummyBaseClassImport():
+    from ._1150 import CylindricalGearLTCAContactChartDataAsTextFile
+    from ._1151 import CylindricalGearLTCAContactCharts
+    from ._1152 import GearLTCAContactChartDataAsTextFile
+    from ._1153 import GearLTCAContactCharts
