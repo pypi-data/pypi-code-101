@@ -1,0 +1,12 @@
+class Value:
+    SWAGGER_VERSION = '2.0'
+    PATH = 'path'
+    QUERY = 'query'
+    OBJECT = 'object'
+    BODY = 'body'
+    ARRAY = 'array'
+    DEFAULT_RESPONSE = 'successful operation'
+    INTEGER = 'integer'
+    STRING = 'string'
+    HEADER = 'header'
+    TOKEN_DESCRIPTION = '<token>'
