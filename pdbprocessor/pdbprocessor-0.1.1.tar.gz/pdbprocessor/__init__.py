@@ -1,0 +1,3 @@
+import pdbprocessor
+
+pdbprocessor.main()
