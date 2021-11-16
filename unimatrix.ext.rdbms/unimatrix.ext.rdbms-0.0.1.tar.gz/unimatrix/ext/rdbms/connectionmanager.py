@@ -1,0 +1,62 @@
+"""Declares :class:`ConnectionManager`."""
+import os
+
+from unimatrix.lib import rdbms
+
+from .connection import Connection
+
+
+class ConnectionManager:
+    """Manages the connections for an application."""
+
+    def __init__(self, environ=None):
+        self.__connections = {
+            name: Connection(opts.dsn)
+            for name, opts in dict.items(
+                rdbms.load_config(env=environ or os.environ)
+            )
+        }
+
+    def _connection_factory(self, opts: dict) -> Connection:
+        opts = rdbms.load_config(opts)
+        return Connection(opts['self'].dsn)
+
+    def add(self, name: str, opts: dict) -> None:
+        """Add a new connection using the given parameters"""
+        self.__connections[name] = self._connection_factory(opts)
+
+    def get(self, name: str = 'self') -> Connection:
+        """Return the named connection `name`."""
+        return self.__connections[name]
+
+    async def clear(self):
+        """Disconnect all databases and remove them from the internal
+        registry.
+        """
+        await self.disconnect()
+        self.__connections = {}
+
+    async def connect(self):
+        """Connect all database connections that are specified."""
+        connected = []
+        for name, connection in dict.items(self.__connections):
+            try:
+                await connection.connect()
+                connected.append(connection)
+            except Exception as e:
+                for active in connected:
+                    await active.disconnect()
+                raise
+
+    async def disconnect(self):
+        """Disconnect all database connections that are specified."""
+        for name, connection in dict.items(self.__connections):
+            try:
+                await connection.disconnect()
+            except Exception as e:
+                pass
+
+
+#: The connections that could be automatically determined from the application
+#: environment and predefined locations.
+connections = ConnectionManager()
